@@ -1,0 +1,3 @@
+get_messages:
+  description: "Get messages from Pushover."
+  fields: {}

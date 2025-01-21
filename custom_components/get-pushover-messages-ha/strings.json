@@ -1,0 +1,16 @@
+{
+    "config": {
+      "step": {
+        "user": {
+          "title": "Set up Pushover Integration",
+          "description": "Enter your Pushover credentials.",
+          "data": {
+            "email": "Email",
+            "password": "Password",
+            "twofa": "2FA Code"
+          }
+        }
+      }
+    }
+  }
+  

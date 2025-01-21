@@ -1,0 +1,11 @@
+{
+    "domain": "Get-Pushover-Messages-HA",
+    "name": "Get Pushover Messages",
+    "version": "1.0.0",
+    "documentation": "https://github.com/GhostInTheLoop/HA-Get-Pushover-Messages",
+    "dependencies": [],
+    "requirements": ["requests"],
+    "codeowners": ["@GhostInTheLoop"],
+    "config_flow": true
+  }
+  

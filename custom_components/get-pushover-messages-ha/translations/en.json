@@ -1,0 +1,12 @@
+{
+    "title": "Pushover Messages Integration",
+    "options": {
+      "step": {
+        "init": {
+          "title": "Pushover Settings",
+          "description": "Enter your credentials"
+        }
+      }
+    }
+  }
+  
