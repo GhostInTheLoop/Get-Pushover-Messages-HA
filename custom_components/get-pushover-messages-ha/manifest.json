@@ -6,6 +6,7 @@
     "dependencies": [],
     "requirements": ["requests"],
     "codeowners": ["@GhostInTheLoop"],
+    "iot_class": "cloud_polling",
     "config_flow": true
   }
   
