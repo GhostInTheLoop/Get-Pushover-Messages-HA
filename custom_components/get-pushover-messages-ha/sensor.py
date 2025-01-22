@@ -104,14 +104,15 @@ class PushoverLastMessageSensor(CoordinatorEntity, Entity):
         super().__init__(coordinator)
         self._attr_name = "Latest Pushover Message"
         self._attr_unique_id = f"pushover_{coordinator.device_id}"
+        self._last_message = None  # Store last valid message
 
     @property
     def state(self):
         """Return the message content of the most recent Pushover message."""
         latest_message = self.coordinator.data
         if latest_message:
-            return latest_message.get("message", "No messages")
-        return "No messages"
+            self._last_message = latest_message.get("message", self._last_message)
+        return self._last_message or "No messages received yet"
 
     @property
     def extra_state_attributes(self):
