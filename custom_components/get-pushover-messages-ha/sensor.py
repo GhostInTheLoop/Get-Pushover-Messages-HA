@@ -1,5 +1,6 @@
 import logging
 import aiohttp
+import asyncio
 from datetime import timedelta
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import (
@@ -12,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 API_MESSAGES_URL = "https://api.pushover.net/1/messages.json"
 DELETE_MESSAGES_URL = "https://api.pushover.net/1/devices/{}/update_highest_message.json"
-SCAN_INTERVAL = timedelta(seconds=25)  # Set to poll every 25 seconds
+SCAN_INTERVAL = timedelta(seconds=8)  # Set to poll every 8 seconds
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the Pushover sensor."""
@@ -59,15 +60,17 @@ class PushoverDataUpdateCoordinator(DataUpdateCoordinator):
                     messages = data.get("messages", [])
 
                     if not messages:
-                        # _LOGGER.warning("No new messages found from Pushover.")
                         return None
 
                     # Get the latest message by sorting messages based on 'date'
                     latest_message = max(messages, key=lambda msg: msg.get("date", 0))
                     _LOGGER.info("Latest Pushover message received: %s", latest_message["message"])
 
+                    # Add delay before deleting
+                    await asyncio.sleep(2)
+
                     # Delete messages after processing
-                    await self._delete_messages(session, latest_message["id"])
+                    await self._delete_messages(session, str(latest_message["id"]))
 
                     return latest_message
 
@@ -83,16 +86,19 @@ class PushoverDataUpdateCoordinator(DataUpdateCoordinator):
         delete_url = DELETE_MESSAGES_URL.format(self.device_id)
         payload = {"secret": self.secret, "message": highest_message_id}
 
+        _LOGGER.debug("Attempting to delete message ID %s with payload %s", highest_message_id, payload)
+
         try:
-            response = await session.post(delete_url, data=payload)
-            if response.status == 200:
-                delete_response = await response.json()
-                if delete_response.get("status") == 1:
-                    _LOGGER.info("Successfully deleted messages up to ID %s", highest_message_id)
+            async with session.post(delete_url, data=payload) as response:
+                response_text = await response.text()
+                if response.status == 200:
+                    delete_response = await response.json()
+                    if delete_response.get("status") == 1:
+                        _LOGGER.info("Successfully deleted messages up to ID %s", highest_message_id)
+                    else:
+                        _LOGGER.error("Failed to delete messages: %s", delete_response)
                 else:
-                    _LOGGER.error("Failed to delete messages: %s", delete_response)
-            else:
-                _LOGGER.error("Error deleting messages: %s", response.status)
+                    _LOGGER.error("Error deleting messages: %s - %s", response.status, response_text)
         except aiohttp.ClientError as e:
             _LOGGER.error("Error connecting to Pushover for deletion: %s", str(e))
 
