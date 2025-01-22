@@ -12,7 +12,7 @@ _LOGGER = logging.getLogger(__name__)
 
 API_MESSAGES_URL = "https://api.pushover.net/1/messages.json"
 DELETE_MESSAGES_URL = "https://api.pushover.net/1/devices/{}/update_highest_message.json"
-SCAN_INTERVAL = timedelta(seconds=10)  # Set to poll every 10 seconds
+SCAN_INTERVAL = timedelta(seconds=25)  # Set to poll every 25 seconds
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the Pushover sensor."""
@@ -59,7 +59,7 @@ class PushoverDataUpdateCoordinator(DataUpdateCoordinator):
                     messages = data.get("messages", [])
 
                     if not messages:
-                        _LOGGER.warning("No new messages found from Pushover.")
+                        # _LOGGER.warning("No new messages found from Pushover.")
                         return None
 
                     # Get the latest message by sorting messages based on 'date'
