@@ -13,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 API_MESSAGES_URL = "https://api.pushover.net/1/messages.json"
 DELETE_MESSAGES_URL = "https://api.pushover.net/1/devices/{}/update_highest_message.json"
-SCAN_INTERVAL = timedelta(seconds=8)  # Set to poll every 8 seconds
+SCAN_INTERVAL = timedelta(seconds=8)
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the Pushover sensor."""
@@ -25,8 +25,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         return
 
     coordinator = PushoverDataUpdateCoordinator(hass, secret, device_id)
-
-    # Schedule the first data refresh after setting up entities
     await coordinator.async_refresh()
 
     async_add_entities([PushoverLastMessageSensor(coordinator)], True)
@@ -35,7 +33,6 @@ class PushoverDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Pushover data from API."""
 
     def __init__(self, hass, secret, device_id):
-        """Initialize the data update coordinator."""
         super().__init__(
             hass,
             _LOGGER,
@@ -46,7 +43,7 @@ class PushoverDataUpdateCoordinator(DataUpdateCoordinator):
         self.device_id = device_id
 
     async def _async_update_data(self):
-        """Fetch data from Pushover API and delete after processing."""
+        """Fetch data from Pushover API and process messages."""
         async with aiohttp.ClientSession() as session:
             try:
                 response = await session.get(
@@ -55,87 +52,88 @@ class PushoverDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 if response.status == 200:
                     data = await response.json()
-                    _LOGGER.debug("Full Pushover response: %s", data)
-
                     messages = data.get("messages", [])
 
                     if not messages:
-                        return None
+                        return self.data if self.data else []
 
-                    # Get the latest message by sorting messages based on 'date'
-                    latest_message = max(messages, key=lambda msg: msg.get("date", 0))
-                    _LOGGER.info("Latest Pushover message received: %s", latest_message["message"])
+                    # Sort messages by date to find the absolute latest
+                    sorted_messages = sorted(messages, key=lambda msg: msg.get("date", 0), reverse=True)
+                    highest_id = str(max(msg.get("id", 0) for msg in messages))
 
-                    # Add delay before deleting
-                    await asyncio.sleep(2)
+                    # Logic: Delete from server immediately after fetching
+                    # to keep the inbox clean.
+                    await asyncio.sleep(1)
+                    await self._delete_messages(session, highest_id)
 
-                    # Delete messages after processing
-                    await self._delete_messages(session, str(latest_message["id"]))
-
-                    return latest_message
+                    return sorted_messages
 
                 else:
-                    error_text = await response.text()
-                    _LOGGER.error("Error fetching messages: %s - %s", response.status, error_text)
+                    _LOGGER.error("Error fetching messages: %s", response.status)
             except aiohttp.ClientError as e:
                 _LOGGER.error("Error connecting to Pushover: %s", str(e))
-        return None
+        return self.data if self.data else []
 
     async def _delete_messages(self, session, highest_message_id):
-        """Delete messages from the Pushover server."""
+        """Delete messages from the Pushover server up to highest_message_id."""
         delete_url = DELETE_MESSAGES_URL.format(self.device_id)
         payload = {"secret": self.secret, "message": highest_message_id}
-
-        _LOGGER.debug("Attempting to delete message ID %s with payload %s", highest_message_id, payload)
-
         try:
             async with session.post(delete_url, data=payload) as response:
-                response_text = await response.text()
                 if response.status == 200:
-                    delete_response = await response.json()
-                    if delete_response.get("status") == 1:
-                        _LOGGER.info("Successfully deleted messages up to ID %s", highest_message_id)
-                    else:
-                        _LOGGER.error("Failed to delete messages: %s", delete_response)
-                else:
-                    _LOGGER.error("Error deleting messages: %s - %s", response.status, response_text)
+                    _LOGGER.info("Successfully cleared Pushover inbox up to ID %s", highest_message_id)
         except aiohttp.ClientError as e:
-            _LOGGER.error("Error connecting to Pushover for deletion: %s", str(e))
+            _LOGGER.error("Error clearing Pushover inbox: %s", str(e))
 
 class PushoverLastMessageSensor(CoordinatorEntity, Entity):
-    """Representation of the latest Pushover message sensor."""
+    """Sensor that stores the latest message and a history of the last 10."""
 
     def __init__(self, coordinator):
-        """Initialize the sensor."""
         super().__init__(coordinator)
         self._attr_name = "Latest Pushover Message"
         self._attr_unique_id = f"pushover_{coordinator.device_id}"
-        self._last_message = None  # Store last valid message
+        self._history = []  # Internal list to store last 10 unique messages
 
     @property
     def state(self):
-        """Return the message content of the most recent Pushover message."""
-        latest_message = self.coordinator.data
-        if latest_message:
-            self._last_message = latest_message.get("message", self._last_message)
-        return self._last_message or "No messages received yet"
+        """Return the text of the latest unique message."""
+        new_messages = self.coordinator.data
+        if not new_messages or not isinstance(new_messages, list):
+            return self._history[0]["message"] if self._history else "No messages"
+
+        # Check the newest messages from the poll
+        for msg in reversed(new_messages):  # Process oldest to newest
+            msg_id = msg.get("id")
+            # If ID is not in our recent history, add it
+            if not any(h.get("id") == msg_id for h in self._history):
+                self._history.insert(0, {
+                    "id": msg_id,
+                    "message": msg.get("message"),
+                    "title": msg.get("title", "No Title"),
+                    "date": msg.get("date"),
+                    "app": msg.get("app")
+                })
+
+        # Trim history to last 10 items
+        self._history = self._history[:10]
+        
+        return self._history[0]["message"] if self._history else "No messages"
 
     @property
     def extra_state_attributes(self):
-        """Return additional attributes of the latest message."""
-        latest_message = self.coordinator.data
-        if latest_message:
-            return {
-                "title": latest_message.get("title", "No title"),
-                "date": latest_message.get("date"),
-                "priority": latest_message.get("priority"),
-                "app": latest_message.get("app"),
-                "id": latest_message.get("id"),
-                "umid": latest_message.get("umid"),
-            }
-        return {}
+        """Return the history and metadata of the current message."""
+        if not self._history:
+            return {}
+
+        latest = self._history[0]
+        return {
+            "recent_messages": self._history,
+            "title": latest.get("title"),
+            "id": latest.get("id"),
+            "app": latest.get("app"),
+            "history_count": len(self._history)
+        }
 
     async def async_update(self):
-        """Manually trigger an update."""
+        """Manual refresh logic."""
         await self.coordinator.async_request_refresh()
-        _LOGGER.info("Pushover sensor manually updated.")
