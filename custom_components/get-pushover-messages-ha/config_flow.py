@@ -107,6 +107,7 @@ class PushoverOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry):
         """Initialize options flow."""
+        # Fix: Use underscore to avoid AttributeError in newer HA versions
         self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
@@ -114,6 +115,15 @@ class PushoverOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        options_schema = vol.Schema({})
+        # Pull current values to pre-fill the boxes
+        current_email = self._config_entry.data.get(CONF_EMAIL, "")
+        current_password = self._config_entry.data.get(CONF_PASSWORD, "")
+
+        # Define the boxes that will appear in the UI
+        options_schema = vol.Schema({
+            vol.Required(CONF_EMAIL, default=current_email): str,
+            vol.Required(CONF_PASSWORD, default=current_password): str,
+            vol.Optional(CONF_TWOFA): str,
+        })
 
         return self.async_show_form(step_id="init", data_schema=options_schema)
